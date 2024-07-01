@@ -38,11 +38,13 @@ print("Random Seed: ", opt.manualSeed)
 random.seed(opt.manualSeed)
 torch.manual_seed(opt.manualSeed)
 
-dataset = PartDataset(root = 'shapenetcore_partanno_segmentation_benchmark_v0', classification = True, npoints = opt.num_points)
+#dataset = PartDataset(root = '/media/lucap/big_data/datasets/shapenetcore_partanno_segmentation_benchmark_v0', classification = True, npoints = opt.num_points)
+dataset = PartDataset(root = '/media/lucap/big_data/datasets/repair/3D_detection_exp', classification = True, npoints = opt.num_points)
 dataloader = torch.utils.data.DataLoader(dataset, batch_size=opt.batchSize,
                                           shuffle=True, num_workers=int(opt.workers))
 
-test_dataset = PartDataset(root = 'shapenetcore_partanno_segmentation_benchmark_v0', classification = True, train = False, npoints = opt.num_points)
+test_dataset = PartDataset(root = '/media/lucap/big_data/datasets/repair/3D_detection_exp', classification = True, train = False, npoints = opt.num_points)
+#test_dataset = PartDataset(root = '/media/lucap/big_data/datasets/shapenetcore_partanno_segmentation_benchmark_v0', classification = True, train = False, npoints = opt.num_points)
 testdataloader = torch.utils.data.DataLoader(test_dataset, batch_size=opt.batchSize,
                                           shuffle=True, num_workers=int(opt.workers))
 
@@ -100,4 +102,6 @@ for epoch in range(opt.nepoch):
             correct = pred_choice.eq(target.data).cpu().sum()
             print('[%d: %d/%d] %s loss: %f accuracy: %f' %(epoch, i, num_batch, blue('test'), loss.item(), correct.item()/float(opt.batchSize)))
 
-    torch.save(classifier.state_dict(), '%s/cls_model_%d.pth' % (opt.outf, epoch))
+    print("finished")
+    torch.save(classifier.state_dict(), '%s/repair_cls_model_%d.pth' % (opt.outf, epoch))
+    print('saved in ', '%s/repair_cls_model_%d.pth' % (opt.outf, epoch))
