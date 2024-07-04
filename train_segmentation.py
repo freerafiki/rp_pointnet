@@ -17,56 +17,92 @@ from pointnet import PointNetDenseCls
 import torch.nn.functional as F
 if torch.cuda.is_available():
     import torch.backends.cudnn as cudnn
-
+import yaml
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--batchSize', type=int, default=32, help='input batch size')
-parser.add_argument('--workers', type=int, help='number of data loading workers', default=4)
-parser.add_argument('--nepoch', type=int, default=25, help='number of epochs to train for')
-parser.add_argument('--outf', type=str, default='seg',  help='output folder')
-parser.add_argument('--model', type=str, default = '',  help='model path')
-
-
+parser.add_argument('--cfg', type=str, default = '',  help='model path')
+# parser.add_argument('--num_points', type=int, default=1024, help='input batch size')
+# parser.add_argument('--workers', type=int, help='number of data loading workers', default=4)
+# parser.add_argument('--nepoch', type=int, default=25, help='number of epochs to train for')
+# parser.add_argument('--nclass', type=int, default=0, help='number of classes')
+# parser.add_argument('--outf', type=str, default='seg',  help='output folder')
+# parser.add_argument('--model', type=str, default = '',  help='model path')
+# parser.add_argument('--root', type=str, default = 'shapenetcore_partanno_segmentation_benchmark_v0',  help='model path')
 opt = parser.parse_args()
 print (opt)
+
+with open('config.yaml', 'r') as yf:
+    cfg = yaml.safe_load(yf)
+
+print()
+print("#" * 60)
+print("# Parameters")
+for ck in cfg.keys():
+    print(f"# {ck}: {cfg[ck]}")
+print("#" * 60)
+print()
 
 opt.manualSeed = random.randint(1, 10000) # fix seed
 print("Random Seed: ", opt.manualSeed)
 random.seed(opt.manualSeed)
 torch.manual_seed(opt.manualSeed)
 
-dataset = PartDataset(root = 'shapenetcore_partanno_segmentation_benchmark_v0', classification = False, class_choice = ['Chair'])
-dataloader = torch.utils.data.DataLoader(dataset, batch_size=opt.batchSize,
-                                          shuffle=True, num_workers=int(opt.workers))
+print('preparing dataset')
+dataset = PartDataset(root = cfg['dataset_root'], classification = cfg['classification'], class_choice = [cfg['chosen_class']], \
+                    npoints = cfg['num_points'], nclasses = cfg['num_seg_classes'])
+dataloader = torch.utils.data.DataLoader(dataset, batch_size = cfg['batch_size'],
+                                        shuffle = cfg['shuffle'], num_workers = cfg['workers'])
 
-test_dataset = PartDataset(root = 'shapenetcore_partanno_segmentation_benchmark_v0', classification = False, class_choice = ['Chair'], train = False)
-testdataloader = torch.utils.data.DataLoader(test_dataset, batch_size=opt.batchSize,
-                                          shuffle=True, num_workers=int(opt.workers))
+# test_dataset = PartDataset(root = cfg['dataset_root'], classification = cfg['classification'], class_choice = [cfg['chosen_class']], \
+#                         npoints = cfg['num_points'], nclasses = cfg['num_seg_classes'])
+# testdataloader = torch.utils.data.DataLoader(test_dataset, batch_size = cfg['batch_size'],
+#                                             shuffle = cfg['shuffle'], num_workers = cfg['workers'])
 
-print(len(dataset), len(test_dataset))
-num_classes = dataset.num_seg_classes
+# print(len(dataset), len(test_dataset))
+print(f"Training on {len(dataset)} samples..")
+
+if cfg['debug_vis'] == True:
+    import open3d as o3d 
+    import matplotlib
+    point, seg = dataset[np.round(np.random.uniform(len(dataset))).astype(int)]
+    point_np = point.numpy()
+    pcl = o3d.geometry.PointCloud(points=o3d.utility.Vector3dVector(point_np))
+    cmap = matplotlib.colormaps['jet'].resampled(cfg['num_seg_classes'])
+    colors = cmap(seg.numpy()-1)[:,:3]
+    pcl.colors = o3d.utility.Vector3dVector(colors)
+    o3d.visualization.draw_geometries([pcl])
+    breakpoint()
+
+num_classes = cfg['num_seg_classes']
 print('classes', num_classes)
-try:
-    os.makedirs(opt.outf)
-except OSError:
-    pass
+
+output_dir = os.path.join(os.getcwd(), cfg['models_path'])
+os.makedirs(output_dir, exist_ok=True)
 
 blue = lambda x:'\033[94m' + x + '\033[0m'
 
+segNet = PointNetDenseCls(k = num_classes, num_points = cfg['num_points'])
 
-classifier = PointNetDenseCls(k = num_classes)
+if cfg['continue_training'] == True:
+    if opt.model != '':
+        segNet.load_state_dict(torch.load(cfg['continue_training']['ckp_path']))
 
-if opt.model != '':
-    classifier.load_state_dict(torch.load(opt.model))
+if cfg['optimizer'] == 'SGD':
+    optimizer = optim.SGD(segNet.parameters(), lr=cfg['lr'], momentum=cfg['momentum'])
+elif cfg['optimizer'] == 'Adam':
+    optimizer = optim.Adam(segNet.parameters(), lr=cfg['lr'])
+else:
+    optimizer = optim.Adagrad(segNet.parameters(), lr=cfg['lr'])
+print("using as optimizer", optimizer)
 
-optimizer = optim.SGD(classifier.parameters(), lr=0.01, momentum=0.9)
 if torch.cuda.is_available():
-    classifier.cuda()
+    segNet.cuda()
 
-num_batch = len(dataset)/opt.batchSize
+num_batch = len(dataset) / cfg['batch_size']
 
-for epoch in range(opt.nepoch):
+print('starting training..')
+for epoch in range(cfg['epochs']):
     for i, data in enumerate(dataloader, 0):
         points, target = data
         points, target = Variable(points), Variable(target)
@@ -74,17 +110,19 @@ for epoch in range(opt.nepoch):
         if torch.cuda.is_available():
             points, target = points.cuda(), target.cuda()
         optimizer.zero_grad()
-        classifier = classifier.train()
-        pred, _ = classifier(points)
+        segNet = segNet.train()
+        pred, _ = segNet(points)
         pred = pred.view(-1, num_classes)
+        pred_labels = torch.argmax(pred, axis=1)
         target = target.view(-1,1)[:,0] - 1
-        #print(pred.size(), target.size())
-        loss = F.nll_loss(pred, target)
+        target_oh = nn.functional.one_hot(target, num_classes=num_classes)
+        # print(pred.size(), target.size())
+        loss = F.nll_loss(pred.view(-1), target_oh.view(-1))
         loss.backward()
         optimizer.step()
         pred_choice = pred.data.max(1)[1]
         correct = pred_choice.eq(target.data).cpu().sum()
-        print('[%d: %d/%d] train loss: %f accuracy: %f' %(epoch, i, num_batch, loss.item(), correct.item()/float(opt.batchSize * 2500)))
+        print('[%d: %d/%d] train loss: %f accuracy: %f' %(epoch, i, num_batch, loss.item(), correct.item()/float(cfg['batch_size'] * cfg['num_points'])))
 
         if i % 10 == 0:
             j, data = next(enumerate(testdataloader, 0))
@@ -93,14 +131,14 @@ for epoch in range(opt.nepoch):
             points = points.transpose(2,1)
             if torch.cuda.is_available():
                 points, target = points.cuda(), target.cuda()
-            classifier = classifier.eval()
-            pred, _ = classifier(points)
+            segNet = segNet.eval()
+            pred, _ = segNet(points)
             pred = pred.view(-1, num_classes)
             target = target.view(-1,1)[:,0] - 1
 
             loss = F.nll_loss(pred, target)
             pred_choice = pred.data.max(1)[1]
             correct = pred_choice.eq(target.data).cpu().sum()
-            print('[%d: %d/%d] %s loss: %f accuracy: %f' %(epoch, i, num_batch, blue('test'), loss.item(), correct.item()/float(opt.batchSize * 2500)))
+            print('[%d: %d/%d] %s loss: %f accuracy: %f' %(epoch, i, num_batch, blue('test'), loss.item(), correct.item()/float(cfg['batch_size'] * cfg['num_points'])))
 
-    torch.save(classifier.state_dict(), '%s/seg_model_%d.pth' % (opt.outf, epoch))
+    torch.save(segNet.state_dict(), '%s/seg_model_%d.pth' % (output_dir, epoch))

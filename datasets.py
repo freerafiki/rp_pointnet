@@ -14,10 +14,11 @@ import torchvision.transforms as transforms
 import argparse
 import json
 import open3d
-
+import time
 
 class PartDataset(data.Dataset):
-    def __init__(self, root, npoints = 2500, classification = False, class_choice = None, train = True):
+    def __init__(self, root, npoints = 2500, classification = False, class_choice = None, train = True, \
+        nclasses=0):
         self.npoints = npoints
         self.root = root
         self.catfile = os.path.join(self.root, 'synsetoffset2category.txt')
@@ -58,30 +59,41 @@ class PartDataset(data.Dataset):
 
 
         self.classes = dict(zip(sorted(self.cat), range(len(self.cat))))
-        print(self.classes)
-        self.num_seg_classes = 0
-        if not self.classification:
-            for i in range(len(self.datapath)//50):
-                l = len(np.unique(np.loadtxt(self.datapath[i][-1]).astype(np.uint8)))
-                if l > self.num_seg_classes:
-                    self.num_seg_classes = l
+        # print(self.classes)
+        if nclasses == 0:
+            self.num_seg_classes = 0
+            if not self.classification:
+                for i in range(max(4, len(self.datapath)//50)):
+                    l = len(np.unique(np.loadtxt(self.datapath[i][-1]).astype(np.uint8)))
+                    if l > self.num_seg_classes:
+                        self.num_seg_classes = l
+        else:
+            self.num_seg_classes = nclasses
         #print(self.num_seg_classes)
 
 
     def __getitem__(self, index):
+        # print('getitem')
         fn = self.datapath[index]
         cls = self.classes[self.datapath[index][0]]
-        point_set = np.asarray(
-            open3d.io.read_point_cloud(fn[1], format='xyz').points,
-            dtype=np.float32)
+        # print(fn[1])
+        # time1 = time.time()
+        # point_set = np.asarray(
+        #     open3d.io.read_point_cloud(fn[1], format='xyz').points,
+        #     dtype=np.float32)
+        point_set = np.loadtxt(fn[1]).astype(np.float32)
+        print("size", point_set.shape)
+        # print(f'loading pcl: {time.time()-time1:.03f}')
+        # time1 = time.time()
         seg = np.loadtxt(fn[2]).astype(np.int64)
-        #print(point_set.shape, seg.shape)
+        # print(f'loading seg: {time.time()-time1:.03f}')
 
         choice = np.random.choice(len(seg), self.npoints, replace=True)
         #resample
         point_set = point_set[choice, :]
         seg = seg[choice]
         point_set = torch.from_numpy(point_set)
+        print("size after", point_set.shape)
         seg = torch.from_numpy(seg)
         cls = torch.from_numpy(np.array([cls]).astype(np.int64))
         if self.classification:

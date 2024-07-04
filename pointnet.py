@@ -91,6 +91,7 @@ class PointNetfeat(nn.Module):
             return torch.cat([x, pointfeat], 1), trans
 
 class PointNetCls(nn.Module):
+
     def __init__(self, num_points = 2500, k = 2):
         super(PointNetCls, self).__init__()
         self.num_points = num_points
@@ -101,6 +102,7 @@ class PointNetCls(nn.Module):
         self.bn1 = nn.BatchNorm1d(512)
         self.bn2 = nn.BatchNorm1d(256)
         self.relu = nn.ReLU()
+
     def forward(self, x):
         x, trans = self.feat(x)
         x = F.relu(self.bn1(self.fc1(x)))
@@ -130,8 +132,9 @@ class PointNetDenseCls(nn.Module):
         x = F.relu(self.bn3(self.conv3(x)))
         x = self.conv4(x)
         x = x.transpose(2,1).contiguous()
-        x = F.log_softmax(x.view(-1,self.k), dim=-1)
+        x = F.log_softmax(x.view(-1, self.k), dim=-1)
         x = x.view(batchsize, self.num_points, self.k)
+
         return x, trans
 
 
