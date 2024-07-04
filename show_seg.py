@@ -62,8 +62,8 @@ point = point.transpose(1,0).contiguous()
 
 point = Variable(point.view(1, point.size()[0], point.size()[1]))
 pred, _ = trained_segNet(point)
-pred_lab = torch.argmax(torch.squeeze(pred), axis=1)
-# pred_choice = pred.data.max(2)[1]
+#pred_lab = torch.argmin(torch.squeeze(pred), axis=1)
+pred_lab = np.squeeze(pred.data.max(2)[1])
 cmapjet = matplotlib.colormaps['jet'].resampled(cfg['num_seg_classes'])
 pred_in_colors = cmapjet(pred_lab+1)[:,:3]
 
@@ -75,12 +75,13 @@ num_err = np.sum(err_np > 0)
 num_err_norm = num_err / (err_np.shape[0])
 acc = 1 - num_err_norm 
 print(f"# acc: {acc:03f}")
-ferr_np = (errors.numpy() > 0) * (gt > 1)
-fnum_err = np.sum(err_np > 0)
+ferr_np = (err_np > 0) * (gt > 1)
+fnum_err = np.sum(ferr_np > 0)
 fnum_err_norm = fnum_err / (ferr_np.shape[0])
 facc = 1 - fnum_err_norm 
 print(f"# acc (fragments): {facc}")
 print("#" * 60)
+
 
 # point, seg = dataset[]
 # point_np = point.numpy()
@@ -93,3 +94,4 @@ pcl = o3d.geometry.PointCloud(points=o3d.utility.Vector3dVector(point_np))
 pcl.colors = o3d.utility.Vector3dVector(pred_in_colors)
 
 o3d.visualization.draw_geometries([pcl])
+breakpoint()

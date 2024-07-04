@@ -44,8 +44,10 @@ class PartDataset(data.Dataset):
             fns = sorted(os.listdir(dir_point))
             if train:
                 fns = fns[:int(len(fns) * 0.9)]
+                print(f"training set: {len(fns)} samples")
             else:
                 fns = fns[int(len(fns) * 0.9):]
+                print(f"test set: {len(fns)} samples")
 
             #print(os.path.basename(fns))
             for fn in fns:
@@ -82,7 +84,7 @@ class PartDataset(data.Dataset):
         #     open3d.io.read_point_cloud(fn[1], format='xyz').points,
         #     dtype=np.float32)
         point_set = np.loadtxt(fn[1]).astype(np.float32)
-        print("size", point_set.shape)
+        #print("size", point_set.shape)
         # print(f'loading pcl: {time.time()-time1:.03f}')
         # time1 = time.time()
         seg = np.loadtxt(fn[2]).astype(np.int64)
@@ -93,7 +95,7 @@ class PartDataset(data.Dataset):
         point_set = point_set[choice, :]
         seg = seg[choice]
         point_set = torch.from_numpy(point_set)
-        print("size after", point_set.shape)
+        #print("size after", point_set.shape)
         seg = torch.from_numpy(seg)
         cls = torch.from_numpy(np.array([cls]).astype(np.int64))
         if self.classification:

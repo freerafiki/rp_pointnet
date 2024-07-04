@@ -132,7 +132,7 @@ class PointNetDenseCls(nn.Module):
         x = F.relu(self.bn3(self.conv3(x)))
         x = self.conv4(x)
         x = x.transpose(2,1).contiguous()
-        x = F.log_softmax(x.view(-1, self.k), dim=-1)
+        x = F.softmax(x.view(-1, self.k), dim=-1)
         x = x.view(batchsize, self.num_points, self.k)
 
         return x, trans

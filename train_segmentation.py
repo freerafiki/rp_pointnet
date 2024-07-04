@@ -54,10 +54,10 @@ dataset = PartDataset(root = cfg['dataset_root'], classification = cfg['classifi
 dataloader = torch.utils.data.DataLoader(dataset, batch_size = cfg['batch_size'],
                                         shuffle = cfg['shuffle'], num_workers = cfg['workers'])
 
-# test_dataset = PartDataset(root = cfg['dataset_root'], classification = cfg['classification'], class_choice = [cfg['chosen_class']], \
-#                         npoints = cfg['num_points'], nclasses = cfg['num_seg_classes'])
-# testdataloader = torch.utils.data.DataLoader(test_dataset, batch_size = cfg['batch_size'],
-#                                             shuffle = cfg['shuffle'], num_workers = cfg['workers'])
+test_dataset = PartDataset(root = cfg['dataset_root'], classification = cfg['classification'], class_choice = [cfg['chosen_class']], \
+                        npoints = cfg['num_points'], nclasses = cfg['num_seg_classes'])
+testdataloader = torch.utils.data.DataLoader(test_dataset, batch_size = cfg['batch_size'],
+                                            shuffle = cfg['shuffle'], num_workers = cfg['workers'])
 
 # print(len(dataset), len(test_dataset))
 print(f"Training on {len(dataset)} samples..")
@@ -101,6 +101,17 @@ if torch.cuda.is_available():
 
 num_batch = len(dataset) / cfg['batch_size']
 
+loss_history = []
+
+print("Weights")
+weight = np.ones(num_classes, dtype=np.float32)
+for w in range(1, num_classes):
+    #weight[w] = 1 / (num_classes - 1)
+    weight[w] += cfg['scaling_factor_fragments']
+weight /= np.sum(weight) 
+print(weight)
+
+
 print('starting training..')
 for epoch in range(cfg['epochs']):
     for i, data in enumerate(dataloader, 0):
@@ -113,17 +124,16 @@ for epoch in range(cfg['epochs']):
         segNet = segNet.train()
         pred, _ = segNet(points)
         pred = pred.view(-1, num_classes)
-        pred_labels = torch.argmax(pred, axis=1)
         target = target.view(-1,1)[:,0] - 1
+        #pred_labels = torch.argmax(pred, axis=1)
         target_oh = nn.functional.one_hot(target, num_classes=num_classes)
-        # print(pred.size(), target.size())
-        loss = F.nll_loss(pred.view(-1), target_oh.view(-1))
+        loss = F.cross_entropy(pred, target_oh, weight=torch.from_numpy(weight))
         loss.backward()
         optimizer.step()
         pred_choice = pred.data.max(1)[1]
         correct = pred_choice.eq(target.data).cpu().sum()
         print('[%d: %d/%d] train loss: %f accuracy: %f' %(epoch, i, num_batch, loss.item(), correct.item()/float(cfg['batch_size'] * cfg['num_points'])))
-
+        loss_history.append(loss.item())
         if i % 10 == 0:
             j, data = next(enumerate(testdataloader, 0))
             points, target = data
@@ -135,10 +145,16 @@ for epoch in range(cfg['epochs']):
             pred, _ = segNet(points)
             pred = pred.view(-1, num_classes)
             target = target.view(-1,1)[:,0] - 1
-
-            loss = F.nll_loss(pred, target)
+            target_oh = nn.functional.one_hot(target, num_classes=num_classes).double()
+            loss = F.cross_entropy(pred, target_oh, weight=torch.from_numpy(weight))
             pred_choice = pred.data.max(1)[1]
             correct = pred_choice.eq(target.data).cpu().sum()
             print('[%d: %d/%d] %s loss: %f accuracy: %f' %(epoch, i, num_batch, blue('test'), loss.item(), correct.item()/float(cfg['batch_size'] * cfg['num_points'])))
 
-    torch.save(segNet.state_dict(), '%s/seg_model_%d.pth' % (output_dir, epoch))
+    torch.save(segNet.state_dict(), '%s/seg_model_%depochs_weighted_CE.pth' % (output_dir, epoch))
+
+import matplotlib.pyplot as plt 
+plt.plot(loss_history)
+plt.show()
+breakpoint()
+np.savetxt(os.path.join(output_dir, 'weighted_loss_CE.txt'), loss_history)
